@@ -1,0 +1,453 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Coin Weighing: possibility visualization</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+        }
+
+        canvas {
+            display: block;
+            margin: 0 auto;
+        }
+
+        #info {
+            position: absolute;
+            top: 10px;
+            width: 100%;
+            text-align: center;
+            color: white;
+            font-family: Arial, sans-serif;
+        }
+
+        #pause-overlay {
+            position: absolute;
+            left: 0;
+            width: 100%;
+            height: 100%; 
+            background-color: rgba(128, 128, 128, 0.5);
+            display: none;
+            justify-content: center;
+            pointer-events: none;
+        }
+
+        #pause-text {
+            color: white;
+            font-family: Arial, sans-serif;
+        }
+
+        #pause-symbol {
+            font-size: 72px;
+            text-align: center;
+        }
+    </style>
+
+    <!-- Import map shim for browsers without native support -->
+    <script async src="https://unpkg.com/es-module-shims@1.8.0/dist/es-module-shims.js"></script>
+
+    <!-- Define all external dependencies in the import map -->
+    <script type="importmap">
+        {
+            "imports": {
+                "matter": "https://unpkg.com/matter-js@0.14.2/build/matter.js"
+            }
+        }
+    </script>
+</head>
+
+<body>
+<div id="info">Coin Weighing</div>
+<div id="scales"></div>
+<div id="possibilities">
+    <div id="pause-overlay">
+        <div id="pause-text">
+        <div id="pause-symbol">⏸</div>
+        <div>Waiting for equal number of coins on both sides of the scale...</div>
+        </div>
+    </div>
+</div>
+<script type="module">
+    // ---- Simulation Logic ----
+
+    // Import Matter.js
+    import * as matter from 'matter';
+    
+    const worlds_width = 900; // width of both "worlds" that are stacked on top of each other.
+
+    //------ "scales" world ------
+    const scale_engine = Matter.Engine.create();
+    const scale_world = scale_engine.world
+    
+    const scale_world_height = 200;
+    
+    let scale_render = Matter.Render.create({
+        element: document.getElementById('scales'),
+        engine: scale_engine,
+        options: {        
+            width: worlds_width,
+            height: scale_world_height,
+            wireframes: false
+        }
+    });
+
+    // objects
+    let floor = Matter.Bodies.rectangle(worlds_width/2, scale_world_height, worlds_width, 20, { isStatic: true })
+    Matter.World.add(scale_world, floor);
+
+    const coin_radius = 15
+    const coin_spacing = 40  // Space between coins
+    const start_x = 20      // Starting x position for first coin
+    const coin_y = scale_world_height - 50       // Y position for all coins
+
+    // Create 5 coins with different sprites
+    const coins = [
+        { texture: 'coin1.png', label: 'coin1' },
+        { texture: 'coin2.png', label: 'coin2' },
+        { texture: 'coin3.png', label: 'coin3' },
+        { texture: 'coin4.png', label: 'coin4' },
+        { texture: 'coinG.png', label: 'coinG' }
+    ].map((coin_data, index) => {
+        const x = start_x + (index * coin_spacing)
+        return Matter.Bodies.circle(x, coin_y, coin_radius, {
+            label: coin_data.label,
+            render: {
+                sprite: {
+                    texture: coin_data.texture,
+                }
+            }
+        })
+    })
+
+    // Add all coins to the world
+    coins.forEach(coin => Matter.World.add(scale_world, coin))
+
+    // Create the scale base (triangle)
+    const scale_base = Matter.Bodies.polygon(worlds_width/2, scale_world_height - 20, 3, 20, {
+        isStatic: true,
+        render: {
+            fillStyle: '#666666'
+        },
+        angle: Math.PI/2 // Rotate to make base horizontal
+    });
+
+    // Create the scale platform (rectangle)
+    // Left side of the scale
+    const left_scale = Matter.Bodies.rectangle(worlds_width/2 - 75, scale_world_height - 40, 150, 5, {
+        isStatic: true,
+        label: 'left_scale',
+        render: { fillStyle: '#666666' }
+    });
+
+    // Right side of the scale
+    const right_scale = Matter.Bodies.rectangle(worlds_width/2 + 75, scale_world_height - 40, 150, 5, {
+        isStatic: true,
+        label: 'right_scale',
+        render: { fillStyle: '#666666' }
+    });
+
+    // Add all parts to the world
+    Matter.World.add(scale_world, [scale_base, left_scale, right_scale]);
+
+    // set up collision detection (to track which coins are on each side of the scale)
+    const coinsOnLeft = new Set();
+    const coinsOnRight = new Set();
+
+    Matter.Events.on(scale_engine, 'collisionStart', function(event) {
+        event.pairs.forEach(pair => {
+            const labels = [pair.bodyA.label, pair.bodyB.label];
+            if (labels.includes('left_scale')) {
+                const coin = pair.bodyA.label.startsWith('coin') ? pair.bodyA : pair.bodyB;
+                coinsOnLeft.add(coin.label);
+                console.log(coinsOnLeft, coinsOnRight);
+                update_categories()
+            }
+            if (labels.includes('right_scale')) {
+                const coin = pair.bodyA.label.startsWith('coin') ? pair.bodyA : pair.bodyB;
+                coinsOnRight.add(coin.label);
+                console.log(coinsOnLeft, coinsOnRight);
+                update_categories()
+            }
+        });
+    });
+
+    Matter.Events.on(scale_engine, 'collisionEnd', function(event) {
+        event.pairs.forEach(pair => {
+            const labels = [pair.bodyA.label, pair.bodyB.label];
+            if (labels.includes('left_scale')) {
+                const coin = pair.bodyA.label.startsWith('coin') ? pair.bodyA : pair.bodyB;
+                coinsOnLeft.delete(coin.label);
+                console.log(coinsOnLeft, coinsOnRight);
+                update_categories()
+            }
+            if (labels.includes('right_scale')) {
+                const coin = pair.bodyA.label.startsWith('coin') ? pair.bodyA : pair.bodyB;
+                coinsOnRight.delete(coin.label);
+                console.log(coinsOnLeft, coinsOnRight);
+                update_categories()
+            }
+        });
+    });
+    // run the "scales" world
+    Matter.Render.run(scale_render)
+    let scale_runner = Matter.Runner.create()
+    Matter.Runner.run(scale_runner, scale_engine)
+
+    // Objects (non-static - so coins) should be draggable 
+    // TODO: don't draw the little spring?
+    const dragCoinsConstraint = Matter.MouseConstraint.create(scale_engine, {
+        element: scale_render.canvas
+    });
+    Matter.World.add(scale_world, dragCoinsConstraint);
+
+    //------ "possibilities" world ------
+    
+    let paused = false; // world can be "paused" when calculation doesn't make sense (different number of coins)
+
+    const poss_world_height = 400;
+
+    // set up data: for each of 9 possibilities, record coin weights.
+    let possible_weights = {}
+    // all coins are correct (none are heavy or light)
+    // a fancy JS way to make an object/dict of coins, with each coin initialized to (weight) 1.
+    possible_weights['all_correct'] = Object.fromEntries(['coin1', 'coin2', 'coin3', 'coin4', 'coinG'].map(
+        coin => [coin, 1]
+    ))
+    // set up weights for other possibilities: 
+    // each coin 1-4 could be heavy and each could be light (but one at a time)
+    for(let coin_i=1; coin_i<=4; coin_i++){
+        for(let weight_discrepancy of ['heavy', 'light']){
+            possible_weights[`coin${coin_i}_${weight_discrepancy}`] = Object.fromEntries(['coin1', 'coin2', 'coin3', 'coin4', 'coinG'].map(
+                coin => [coin, 1]
+            ))
+            const weight_diff = (weight_discrepancy==='heavy'? 0.1:-0.1)
+            possible_weights[`coin${coin_i}_${weight_discrepancy}`][`coin${coin_i}`] += weight_diff
+        }
+    }
+
+    // function to update which category each possibility belongs to, based on coins currently on the scale
+    function update_categories(){
+        for(let poss in possible_weights){
+            let right_weight = 0
+            let left_weight = 0
+            for(let coin of coinsOnRight) {
+                right_weight += possible_weights[poss][coin]
+            }
+            for(let coin of coinsOnLeft){
+                left_weight += possible_weights[poss][coin]
+            }
+            if(right_weight > left_weight)
+                possible_weights[poss].category = 'right_heavy'
+            else if(left_weight > right_weight)
+                possible_weights[poss].category = 'left_heavy'
+            else
+                possible_weights[poss].category = 'equal'
+        }
+        paused = (coinsOnRight.size != coinsOnLeft.size)
+        // Update pause overlay visibility
+        document.getElementById('pause-overlay').style.display = paused ? 'flex' : 'none';
+    }
+
+    update_categories()
+
+    // Set up the simulation
+    const engine = Matter.Engine.create();
+    const world = engine.world;
+    world.gravity.y = 0; // turn off global gravity
+
+    // create a renderer
+    let render = Matter.Render.create({
+        element: document.getElementById('possibilities'),
+        engine: engine,
+        options: {
+            width: worlds_width,
+            height: poss_world_height,
+            wireframes: false
+        }
+    });
+
+    // Define the categories and colors.
+    // The colors are variations on pure RGB values, for aesthetic reasons.
+    const categories = ['left_heavy', 'equal', 'right_heavy'];
+    const category_colors = ['#e78b48', '#a8e4a0', '#8aaebc'];
+
+    // Define the sizes of our objects
+    const area_radius = worlds_width/6; // such that exactly 3 fit inside the width
+    const square_side = 70;
+
+    // Create the areas for each category
+    const areas = categories.map((category, index) => {
+        const x = area_radius*(index*2+1); // position side-by-side starting at left edge
+        const y = poss_world_height-area_radius; // position at the bottom
+        
+        // draw scale symbolabove area (representing where )
+        
+        // scale base (triangle)
+        const scale_symbol_base = Matter.Bodies.polygon(x, y-area_radius-10, 3, 10, {
+            isStatic: true,
+            render: {
+                fillStyle: '#666666'
+            },
+            angle: Math.PI/2, // Rotate to make base horizontal
+            collisionFilter: { // no collisions
+                group: -1,
+                category: 1,
+                mask: 0,
+            }
+        });
+        // scale platform
+        let platform_rotation = 0;
+        if(category=='left_heavy')
+            platform_rotation = -Math.PI/8;
+        else if(category=='right_heavy')
+            platform_rotation = Math.PI/8;
+        const scale_symbol_platform = Matter.Bodies.rectangle(x, y-area_radius-20, 75, 5, {
+            isStatic: true,
+            render: { fillStyle: '#666666' },
+            angle: platform_rotation,
+            collisionFilter: { // no collisions
+                group: -1,
+                category: 1,
+                mask: 0,
+            }
+        });
+        Matter.World.add(world, scale_symbol_base)
+        Matter.World.add(world, scale_symbol_platform)
+
+        // make area circle and add to list
+        return Matter.Bodies.circle(x, y, area_radius, {
+            isStatic: true,
+            label: category,
+            render: {
+                fillStyle: category_colors[index]
+            },
+            collisionFilter: { // no collisions with the areas
+                group: -1,
+                category: 1,
+                mask: 0,
+            }
+        });
+
+    });
+
+    // Add the areas to the world
+    areas.forEach((area) => Matter.World.add(world, area));
+
+    // Create the "possible weights" objects
+    let objects = []
+    for(let poss_w in possible_weights){
+        // random-ish initial positioning so that they are all around the center of the middle area
+        const x = Math.random() * square_side*2 - square_side + area_radius * 3;
+        const y = Math.random() * square_side*2 - square_side + poss_world_height - area_radius;
+        
+        // Create the background/outline part
+        // these used to be squares (hence variable name square_side which I do not feel like updating), but I changed them to circles
+        // primarily because the squares would get stuck trying to pass each other when they collided with their flat sides
+        const background = Matter.Bodies.circle(
+            x, y, 
+            square_side * Math.sqrt(2)/2-5, // fudge the radius a bit to account for corners of sprite being rounded, essentially 
+            {
+                render: {
+                    //fillStyle: '#abc67d',
+                    fillStyle: '#00000000',
+                    strokeStyle: 'gray',
+                    lineWidth: 3
+                }
+            }
+        );
+        
+        // Create the sprite part at the same position
+        const sprite = Matter.Bodies.rectangle(
+            x, y, 
+            square_side-5, square_side-5,  // make the "square" of the sprite a bit smaller for collision purposes. It should only collide with the background circle, anyway.
+            {
+                render: {
+                    sprite: {
+                        texture: `${poss_w}.png`,
+                    }
+                },
+                // Make the sprite part static relative to the background
+                isStatic: true // I don't know how exactly this controls things, and Claude lies about it, but this way the composite part does not rotate.
+            }
+        );
+        
+        // Create a composite body
+        const obj = Matter.Body.create({
+            parts: [background, sprite],
+            label: poss_w,
+            friction: 0
+        });
+        
+        objects.push(obj)
+        Matter.World.add(world, obj)
+    }
+
+    // Define the attraction and repulsion forces.
+    // these are small enough that the objects settle
+    const attractionFactor = 0.0001;
+    const repulsionFactor = 10;
+
+    // Define the simulation update function
+    function update() {
+
+        if (!paused) {
+            // Update the engine
+            Matter.Engine.update(engine);
+            // Apply attraction and repulsion forces - only when unpaused; don't stack forces while paused
+            // Since magnetic force is proportional to 1/(distance squared), it self-dampens very effectively.
+            objects.forEach((object) => {
+                const category = possible_weights[object.label].category;// object.label;
+                const area = areas[categories.indexOf(category)];
+                const distanceToArea = Matter.Vector.magnitude(Matter.Vector.sub(area.position, object.position));
+                const attraction_limit = (area_radius - square_side*Math.sqrt(2) / 2) // the limit where attraction stops (object is inside the area)
+
+                if (distanceToArea > attraction_limit) {
+                    // if distance is such that at least part of the square is out of the circle
+                    let attractionForce = attractionFactor * (distanceToArea-attraction_limit)
+                    const attraction = Matter.Vector.mult(Matter.Vector.normalise(Matter.Vector.sub(area.position, object.position)), attractionForce);
+                    Matter.Body.applyForce(object, object.position, attraction);
+                }
+
+                objects.forEach((otherObject) => {
+                    if (otherObject !== object) {
+                        const distanceToOther = Matter.Vector.magnitude(Matter.Vector.sub(otherObject.position, object.position));
+                        if (distanceToOther < square_side*2) {
+                            let repulsionForce = repulsionFactor / (distanceToOther ** 2)
+                            const repulsion = Matter.Vector.mult(Matter.Vector.normalise(Matter.Vector.sub(object.position, otherObject.position)), repulsionForce);
+                            Matter.Body.applyForce(object, object.position, repulsion);
+                        }
+                    }
+                });
+            });
+        }
+    }
+
+    // run the renderer
+    Matter.Render.run(render);
+    // create runner
+    let runner = Matter.Runner.create({
+        enabled: false
+    });
+    // run the engine
+    Matter.Runner.run(runner, engine);
+
+    // Set up frame rate and start frame loop
+    let lastUpdate = performance.now();
+
+    function run_frame() {
+        let delta = performance.now() - lastUpdate;
+        if (delta > 16.67) { // 16.67 ms (60 FPS)
+            update()
+            lastUpdate = performance.now();
+        }
+        requestAnimationFrame(run_frame);
+    }
+
+    requestAnimationFrame(run_frame);
+
+</script>
+</body>
+</html>
