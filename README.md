@@ -1,6 +1,8 @@
 # Coin Weighing visualization
 
-View at: https://yanamal.github.io/coin_weighing/coins.html
+![image](coin_screenshot.png)
+
+Try it at: https://yanamal.github.io/coin_weighing/coins.html
 
 This is a simple visualization for a coin weighing puzzle:
 
